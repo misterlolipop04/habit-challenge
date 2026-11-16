@@ -1,0 +1,25 @@
+
+# Секреты локальной среды
+.env
+.env
+.env.*
+!.env.example
+.DS_Store
+daily_rewards_backup*.sql
+*.log
+vendor/
+.idea/
+.settings/
+.project
+.buildpath
+.env
+.env.*
+!.env.example
+.DS_Store
+daily_rewards_backup*.sql
+*.log
+vendor/
+.idea/
+.settings/
+.project
+.buildpath

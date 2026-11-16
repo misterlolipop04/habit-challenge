@@ -1,0 +1,37 @@
+services:
+  web:
+    build: .
+    ports:
+      # Только на этом Mac, не в локальной сети
+      - "127.0.0.1:8081:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMIN_ENABLED: ${ADMIN_ENABLED:-0}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+    volumes:
+      - ./index.php:/var/www/html/index.php
+      - ./app:/var/www/app
+      - ./public:/var/www/html/public:ro
+      - ./admin:/var/www/html/admin:ro
+      - ./history:/var/www/html/history:ro
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: daily_rewards
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:
