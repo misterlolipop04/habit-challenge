@@ -2,12 +2,15 @@ services:
   web:
     build: .
     ports:
-      # Только на этом Mac, не в локальной сети
       - "127.0.0.1:8081:80"
     depends_on:
       db:
         condition: service_healthy
     environment:
+      DB_HOST: db
+      DB_NAME: daily_rewards
+      DB_USER: ${DB_USER:?Set DB_USER in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       ADMIN_ENABLED: ${ADMIN_ENABLED:-0}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
     volumes:
@@ -20,15 +23,15 @@ services:
   db:
     image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: daily_rewards
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      MYSQL_USER: ${DB_USER:?Set DB_USER in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     volumes:
       - db_data:/var/lib/mysql
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD-SHELL", 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -h 127.0.0.1 -uroot -Nse "SELECT 1" >/dev/null 2>&1']
       interval: 5s
       timeout: 5s
       retries: 10
