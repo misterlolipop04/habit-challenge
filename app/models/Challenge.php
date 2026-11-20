@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/StreakRewardRules.php';
+
 class Challenge
 {
     public function __construct(private mysqli $conn)
@@ -150,8 +152,6 @@ class Challenge
     {
         $this->conn->begin_transaction();
         try {
-            // Общая блокировка пользователя сериализует отметки всех его челленджей,
-            // задания дня и административные отмены начислений.
             $stmt = $this->conn->prepare(
                 'SELECT id, active_challenge_id, current_streak, best_streak, last_claim_date
                  FROM users WHERE id = ? FOR UPDATE'
@@ -184,8 +184,9 @@ class Challenge
                 return false;
             }
 
-            $newStreak = $challenge['last_completed_date'] === $dates['yesterday']
-                ? (int) $challenge['current_streak'] + 1 : 1;
+            $newStreak = StreakRewardRules::nextStreak(
+                $challenge['last_completed_date'], $dates['yesterday'], (int) $challenge['current_streak']
+            );
             $newBest = max((int) $challenge['best_streak'], $newStreak);
 
             $stmt = $this->conn->prepare(
@@ -209,10 +210,11 @@ class Challenge
             $stmt->bind_param('i', $userId);
             $stmt->execute();
             if ($stmt->get_result()->fetch_assoc() === null) {
-                $rewardStreak = $user['last_claim_date'] === $dates['yesterday']
-                    ? (int) $user['current_streak'] + 1 : 1;
+                $rewardStreak = StreakRewardRules::nextStreak(
+                    $user['last_claim_date'], $dates['yesterday'], (int) $user['current_streak']
+                );
                 $rewardBest = max((int) $user['best_streak'], $rewardStreak);
-                $coinsEarned = 10 + ($rewardStreak % 7 === 0 ? 50 : 0);
+                $coinsEarned = StreakRewardRules::rewardCoins($rewardStreak);
 
                 $stmt = $this->conn->prepare(
                     'INSERT INTO reward_history (user_id, reward_date, coins_earned)
