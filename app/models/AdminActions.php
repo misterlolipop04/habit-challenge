@@ -2,11 +2,7 @@
 
 declare(strict_types=1);
 
-/**
- * Операции тестовой админ-панели.
- * Каждая операция списания монет выполняется внутри транзакции с блокировкой
- * строки пользователя — так она согласована с обычной выдачей наград.
- */
+
 class AdminActions
 {
     public function __construct(private mysqli $conn)
@@ -25,8 +21,10 @@ class AdminActions
     public function getTasks(): array
     {
         $result = $this->conn->query(
-            'SELECT id, title, description, coins_reward
-             FROM tasks ORDER BY id'
+            "SELECT id, title, description, coins_reward
+             FROM tasks
+             WHERE TRIM(title) <> '' AND TRIM(description) <> ''
+             ORDER BY id"
         );
         return $result->fetch_all(MYSQLI_ASSOC);
     }
@@ -163,15 +161,12 @@ class AdminActions
         return $user;
     }
 
-    /** Сбросить выполнение конкретного челленджа за сегодня. */
     public function resetChallengeCheckin(int $userId, int $challengeId): bool
     {
         $this->conn->begin_transaction();
         try {
             $this->lockUser($userId);
             $changed = $this->resetCheckinInTransaction($userId, $challengeId);
-            // Первую отметку дня оплачиваем один раз на аккаунт. Если больше
-            // не осталось отметок, отменяем и общую награду.
             if ($changed && !$this->hasAnyCheckinToday($userId)) {
                 $this->resetRewardInTransaction($userId, $this->lockUser($userId));
             }
@@ -183,7 +178,6 @@ class AdminActions
         }
     }
 
-    /** Сбросить все отметки пользователя за сегодня вместе с наградой. */
     public function resetAllCheckins(int $userId): bool
     {
         $this->conn->begin_transaction();
@@ -199,7 +193,6 @@ class AdminActions
         }
     }
 
-    /** Сбросить все отметки, награду и общее испытание за одну транзакцию. */
     public function resetBoth(int $userId): bool
     {
         $this->conn->begin_transaction();
@@ -245,7 +238,6 @@ class AdminActions
         return (int) $stmt->get_result()->fetch_assoc()['total'] > 0;
     }
 
-    /** Требует блокировки пользователя до вызова. */
     private function resetCheckinInTransaction(int $userId, int $challengeId): bool
     {
         $stmt = $this->conn->prepare(
@@ -321,7 +313,6 @@ class AdminActions
         $stmt->bind_param('i', $userId);
         $stmt->execute();
 
-        // Восстанавливаем серию и рекорд из оставшейся истории.
         $stmt = $this->conn->prepare(
             'SELECT reward_date FROM reward_history
              WHERE user_id = ? ORDER BY reward_date ASC'
@@ -353,7 +344,6 @@ class AdminActions
         return true;
     }
 
-    /** Отменить сегодняшнее выполнение и списать ранее начисленные монеты. */
     public function resetTask(int $userId): bool
     {
         $this->conn->begin_transaction();
@@ -368,24 +358,18 @@ class AdminActions
         }
     }
 
-    /**
-     * Индивидуально назначить другое задание и сбросить выполнение за сегодня.
-     * Других пользователей и общее расписание не изменяем.
-     */
     public function changeTask(int $userId, int $taskId): void
     {
         $this->conn->begin_transaction();
         try {
             $user = $this->lockUser($userId);
-            $stmt = $this->conn->prepare('SELECT id FROM tasks WHERE id = ?');
+            $stmt = $this->conn->prepare("SELECT id FROM tasks WHERE id = ? AND TRIM(title) <> '' AND TRIM(description) <> ''");
             $stmt->bind_param('i', $taskId);
             $stmt->execute();
             if ($stmt->get_result()->fetch_assoc() === null) {
                 throw new DomainException('Такого испытания нет.');
             }
 
-            // Смена задания для уже выполнившего его пользователя
-            // одновременно отменяет старое выполнение и начисление.
             $this->resetTaskInTransaction($userId, $user);
 
             $stmt = $this->conn->prepare(

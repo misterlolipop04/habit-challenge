@@ -14,10 +14,11 @@ class DailyTask
         // Сначала проверяем индивидуальное назначение для пользователя.
         if ($userId !== null) {
             $stmt = $this->conn->prepare(
-                'SELECT tasks.*
+                "SELECT tasks.*
                  FROM user_task_overrides AS overrides
                  JOIN tasks ON tasks.id = overrides.task_id
-                 WHERE overrides.user_id = ? AND overrides.task_date = CURDATE()'
+                 WHERE overrides.user_id = ? AND overrides.task_date = CURDATE()
+                   AND TRIM(tasks.title) <> '' AND TRIM(tasks.description) <> ''"
             );
             $stmt->bind_param('i', $userId);
             $stmt->execute();
@@ -29,10 +30,11 @@ class DailyTask
 
         // Иначе используем общее задание, закреплённое за датой.
         $result = $this->conn->query(
-            'SELECT tasks.*
+            "SELECT tasks.*
              FROM daily_task_schedule AS schedule
              JOIN tasks ON tasks.id = schedule.task_id
-             WHERE schedule.task_date = CURDATE()'
+             WHERE schedule.task_date = CURDATE()
+               AND TRIM(tasks.title) <> '' AND TRIM(tasks.description) <> ''"
         );
         $task = $result->fetch_assoc();
         if ($task !== null) {
@@ -40,7 +42,11 @@ class DailyTask
         }
 
         // При первом посещении дня создаём общее назначение.
-        $result = $this->conn->query('SELECT * FROM tasks ORDER BY id');
+        $result = $this->conn->query(
+            "SELECT id FROM tasks
+             WHERE TRIM(title) <> '' AND TRIM(description) <> ''
+             ORDER BY id"
+        );
         $tasks = $result->fetch_all(MYSQLI_ASSOC);
         if (count($tasks) === 0) {
             return null;
@@ -60,13 +66,26 @@ class DailyTask
         $stmt->bind_param('i', $taskId);
         $stmt->execute();
 
+        // Если сегодняшнее испытание было назначено ранее, но оказалось пустым,
+        // заменяем только эту некорректную запись, не меняя корректные назначения.
+        $stmt = $this->conn->prepare(
+            "UPDATE daily_task_schedule AS schedule
+             JOIN tasks AS assigned ON assigned.id = schedule.task_id
+             SET schedule.task_id = ?
+             WHERE schedule.task_date = CURDATE()
+               AND (TRIM(assigned.title) = '' OR TRIM(assigned.description) = '')"
+        );
+        $stmt->bind_param('i', $taskId);
+        $stmt->execute();
+
         // Даже при одновременном запросе двух пользователей возвращаем
         // фактически сохранённую запись, а не предполагаемую.
         $result = $this->conn->query(
-            'SELECT tasks.*
+            "SELECT tasks.*
              FROM daily_task_schedule AS schedule
              JOIN tasks ON tasks.id = schedule.task_id
-             WHERE schedule.task_date = CURDATE()'
+             WHERE schedule.task_date = CURDATE()
+               AND TRIM(tasks.title) <> '' AND TRIM(tasks.description) <> ''"
         );
         return $result->fetch_assoc();
     }

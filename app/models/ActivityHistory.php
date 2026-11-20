@@ -2,11 +2,7 @@
 
 declare(strict_types=1);
 
-/**
- * Полная история активности пользователя.
- * Монеты принадлежат аккаунту, поэтому не приписываются отдельному
- * челленджу: первая отметка дня могла быть сделана в любом из них.
- */
+
 class ActivityHistory
 {
     public function __construct(private mysqli $conn)
@@ -81,8 +77,6 @@ class ActivityHistory
 
         krsort($days);
         foreach ($days as &$day) {
-            // Проверка привычек -> испытания; точный порядок во времени
-            // не сохраняется в текущей схеме БД и не имитируется.
             usort($day['entries'], static function (array $a, array $b): int {
                 $rank = ['checkin' => 0, 'task' => 1];
                 return ($rank[$a['type']] <=> $rank[$b['type']])

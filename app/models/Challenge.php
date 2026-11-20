@@ -6,6 +6,8 @@ require_once __DIR__ . '/StreakRewardRules.php';
 
 class Challenge
 {
+    private const MAX_CHALLENGES = 20;
+
     public function __construct(private mysqli $conn)
     {
     }
@@ -57,25 +59,18 @@ class Challenge
         $title = $this->normalizeTitle($title);
         $this->conn->begin_transaction();
         try {
-            $stmt = $this->conn->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
-            $stmt->bind_param('i', $userId);
-            $stmt->execute();
-            if ($stmt->get_result()->fetch_assoc() === null) {
-                throw new DomainException('Пользователь не найден.');
-            }
+            $this->lockUser($userId);
             $stmt = $this->conn->prepare('SELECT COUNT(*) AS count FROM challenges WHERE user_id = ?');
             $stmt->bind_param('i', $userId);
             $stmt->execute();
-            if ((int) $stmt->get_result()->fetch_assoc()['count'] >= 20) {
+            if ((int) $stmt->get_result()->fetch_assoc()['count'] >= self::MAX_CHALLENGES) {
                 throw new DomainException('Можно создать не более 20 челленджей.');
             }
             $stmt = $this->conn->prepare('INSERT INTO challenges (user_id, title) VALUES (?, ?)');
             $stmt->bind_param('is', $userId, $title);
             $stmt->execute();
             $challengeId = (int) $this->conn->insert_id;
-            $stmt = $this->conn->prepare('UPDATE users SET active_challenge_id = ?, challenge_name = ? WHERE id = ?');
-            $stmt->bind_param('isi', $challengeId, $title, $userId);
-            $stmt->execute();
+            $this->setActiveChallenge($userId, $challengeId, $title);
             $this->conn->commit();
             return $challengeId;
         } catch (Throwable $e) {
@@ -88,12 +83,7 @@ class Challenge
     {
         $this->conn->begin_transaction();
         try {
-            $stmt = $this->conn->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
-            $stmt->bind_param('i', $userId);
-            $stmt->execute();
-            if ($stmt->get_result()->fetch_assoc() === null) {
-                throw new DomainException('Пользователь не найден.');
-            }
+            $this->lockUser($userId);
             $stmt = $this->conn->prepare('SELECT title FROM challenges WHERE id = ? AND user_id = ?');
             $stmt->bind_param('ii', $challengeId, $userId);
             $stmt->execute();
@@ -102,9 +92,7 @@ class Challenge
                 throw new DomainException('Челлендж не найден.');
             }
             $title = $challenge['title'];
-            $stmt = $this->conn->prepare('UPDATE users SET active_challenge_id = ?, challenge_name = ? WHERE id = ?');
-            $stmt->bind_param('isi', $challengeId, $title, $userId);
-            $stmt->execute();
+            $this->setActiveChallenge($userId, $challengeId, $title);
             $this->conn->commit();
         } catch (Throwable $e) {
             $this->conn->rollback();
@@ -138,16 +126,6 @@ class Challenge
         }
     }
 
-    /**
-     * Отметка привычки и первая за день награда — одна атомарная операция.
-     * Стрик привычки независим; бонусные монеты выдаются максимум раз
-     * за день на аккаунт, даже при нескольких привычках.
-     */
-    /**
-     * Отметка привычки и первая за день награда — одна атомарная операция.
-     * Стрик привычки независим; бонусные монеты выдаются максимум раз
-     * за день на аккаунт, даже при нескольких привычках.
-     */
     public function complete(int $userId, int $challengeId): bool
     {
         $this->conn->begin_transaction();
@@ -237,6 +215,25 @@ class Challenge
             $this->conn->rollback();
             throw $e;
         }
+    }
+
+    private function lockUser(int $userId): void
+    {
+        $stmt = $this->conn->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        if ($stmt->get_result()->fetch_assoc() === null) {
+            throw new DomainException('Пользователь не найден.');
+        }
+    }
+
+    private function setActiveChallenge(int $userId, int $challengeId, string $title): void
+    {
+        $stmt = $this->conn->prepare(
+            'UPDATE users SET active_challenge_id = ?, challenge_name = ? WHERE id = ?'
+        );
+        $stmt->bind_param('isi', $challengeId, $title, $userId);
+        $stmt->execute();
     }
 
     public function getHistory(int $challengeId, int $userId): array
